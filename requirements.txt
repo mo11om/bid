@@ -1,0 +1,10 @@
+# Bridge AI Evaluation System — runtime dependencies
+# redeal is NOT on PyPI; install from GitHub (anntzer/redeal).
+redeal @ git+https://github.com/anntzer/redeal
+endplay>=0.5.0         # double-dummy solver (Phase 3)
+pydantic>=2.0          # structured LLM output / dataset schema
+openai>=1.0.0          # OpenAI-compatible client for local vLLM / Ollama
+matplotlib>=3.7.0      # reporting (Phase 3)
+pandas>=2.0.0          # tabular aggregation
+requests>=2.28.0       # Ollama native /api/chat path
+pytest>=7.3.0          # tests

@@ -1,0 +1,16 @@
+name: bridge-eval
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # redeal is not on PyPI; install from GitHub.
+      - git+https://github.com/anntzer/redeal
+      - endplay>=0.5.0
+      - pydantic>=2.0
+      - openai>=1.0.0
+      - matplotlib>=3.7.0
+      - pandas>=2.0.0
+      - pytest>=7.3.0
