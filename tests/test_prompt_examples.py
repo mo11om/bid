@@ -16,6 +16,8 @@ import pytest
 
 from src.bridge import count_hcp, parse_hand, suit_lengths
 from src.config import Config
+import re
+
 from src.harness.prompt_builder import (
     EXAMPLES,
     EXAMPLES_BLOCK,
@@ -24,6 +26,10 @@ from src.harness.prompt_builder import (
     ContextBuilder,
     annotate_auction,
 )
+from src.harness.situations import SITUATION_BLOCKS
+
+# Matches example-hand strings like "S:A4 H:KQT7 D:J973 C:K82" in block text.
+_HAND_RE = re.compile(r"S:\S+ H:\S+ D:\S+ C:\S+")
 from src.schema.dataset import MockDealRecord
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,7 +87,12 @@ def test_no_example_hand_appears_in_benchmark_data():
         )
     bench = _benchmark_hands()
     assert bench, "benchmark data present but empty — fence would be vacuous"
-    for hand, _info, _auction, _call in EXAMPLES:
+    example_hands = [hand for hand, _info, _auction, _call in EXAMPLES]
+    # Situation blocks embed example hands as text — fence those too.
+    for block in SITUATION_BLOCKS.values():
+        example_hands.extend(_HAND_RE.findall(block))
+    assert len(example_hands) > len(EXAMPLES), "situation-block hands not found"
+    for hand in example_hands:
         assert _normalize(hand) not in bench, (
             f"example hand {hand!r} appears in the Ben-SAYC benchmark data — "
             f"this is test-set leakage; replace it with a fresh hand"

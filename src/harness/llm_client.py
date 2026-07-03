@@ -42,7 +42,9 @@ class LocalLLMClient:
         cache: Optional[LLMCache] = None,
     ) -> None:
         self.config = config
-        self.builder = builder or ContextBuilder(prompt_style=config.prompt_style)
+        self.builder = builder or ContextBuilder(
+            prompt_style=config.prompt_style, situations=config.situations
+        )
         self.fsm = fsm or BiddingFSM()
         self.cache = cache or LLMCache(config.cache_dir, config.model)
         self._client = None  # lazily constructed openai client

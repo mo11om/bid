@@ -47,6 +47,7 @@ def build_config(args: argparse.Namespace) -> Config:
         temperature=args.temperature,
         think=_THINK_CHOICES[args.think],
         prompt_style=args.prompt_style,
+        situations=args.situations,
         retry_illegal=not args.no_retry_illegal,
         dds_rule=args.dds_rule,
         threshold_mode=args.threshold_mode,
@@ -203,6 +204,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Prompt variant: 'base' = hand features + auction only; "
             "'knowledge' = + SAYC reference guide; 'examples' (default) = "
             "+ targeted rules and few-shot examples (ablation-proven recipe)."
+        ),
+    )
+    p.add_argument(
+        "--situations",
+        default=Config.situations,
+        help=(
+            "Situation-triggered guidance blocks ('examples' style only): "
+            "'all' (default), 'none', or a comma-list of tags "
+            "(double_candidate, partner_game_drive, nt_game_candidate, "
+            "strong_2c). Blocks inject only where their situation fires."
         ),
     )
     p.add_argument(

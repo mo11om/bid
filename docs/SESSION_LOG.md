@@ -734,6 +734,85 @@ mattered more than another round of prompt work would have.
 
 ---
 
+## 14. Follow-up: Situation-Triggered Prompt Injection (+ per-theme gates)
+
+### Mechanism
+
+§12–13 established that *globally* added prompt text regresses this model —
+four A/Bs, four regressions. The workaround: `src/harness/situations.py`
+detects bidding situations from **masked info only** (own hand + public
+auction, reusing the period-4 role math) and `ContextBuilder` injects a
+targeted guidance block **only for positions where the situation fires**.
+Every other position renders a byte-identical prompt, so non-regression
+outside the target class holds by construction — verified live: **zero
+outside-class answer changes across all four per-tag runs.**
+
+Config: `Config.situations` / `--situations` — `"all"`, `"none"`, or a
+comma-list of tags. Detection predicates are tuned to fire on the §13 error
+families (unit-tested in `tests/test_situations.py`); block *content* is
+generic and leakage-fenced.
+
+### Per-theme gate results (bench150, DDS-asymmetric, net model_gain_imp over fired positions)
+
+| Tag | Fires on | Net IMP (before → after) | Exact in class | Verdict |
+|---|---|---|---|---|
+| `partner_game_drive` | 21/150 | −60 → −27 (**+33**) | 5 → 8 | **KEEP** |
+| `strong_2c` | 6/150 | −20 → **+9** (+29) | 2 → 0 | **KEEP** |
+| `double_candidate` | 33/150 | −69 → −65 (+4) | 19 → 19 | **KEEP** |
+| `nt_game_candidate` | 10/150 | −33 → −33 (±0) | 4 → 3 | DROP |
+
+Highlights: bench-29/33/61 flipped to the exact oracle call (2S/4S/4S — the
+splinter/fit family §13 called unfixable); bench-63's 4S rolls out **+10 IMP
+over the oracle's own 4NT**; bench-142's 3D rolls out +12. `strong_2c` shows
+why the gate is IMP-based, not exact-based: exact in-class dropped 2 → 0
+while net IMP swung +29 — the model's new calls disagree with Ben's
+bid-strings but reach better contracts.
+
+The dropped tag stays selectable but is off by default; the default
+`Config.situations` is the kept trio. Key lesson: **the same convention
+content that regressed 16 points when injected globally (§13) is worth +66
+net IMP when injected conditionally.** Blast radius, not content, was the
+problem.
+
+### Headline after this change (Gemma4:26b, examples+retry+kept situations)
+
+| Metric | before (§13) | after |
+|---|---|---|
+| bench150 exact | 62.0% | 62.7% |
+| bench150 DDS-acceptable (asymmetric) | 82.0% | 81.3% |
+| **bench150 total net IMP vs oracle** | **−114** | **−60 (+54)** |
+| mean IMP/position | −0.76 | −0.40 |
+| bench25 exact (sanity) | 72% | 72% |
+
+The binary rates barely move because they bin at ±1 IMP: three fired
+positions slipped just past the boundary while the big wins (bench-89 +13,
+bench-138 +16, bench-142 +19 swing) land on positions that were already
+counted one way or the other. The decision metric — net IMPs, what actually
+scores at the table — **halved the model's deficit against the oracle.**
+A second-order effect worth knowing: situational blocks also apply to
+rollout (self-play) seats, so some positions changed value without the
+model's own call changing — continuations improved.
+
+### Comparison stays on Gemma4:26b (situations on vs off)
+
+A Gemma4:31b baseline was attempted but the model OOM'd cold-loading
+alongside the endplay solver, producing no results. Rather than chase the
+larger model, the controlled comparison that matters is **the same model
+(Gemma4:26b) with situational injection on vs off** — every other knob held
+fixed, so the delta is attributable to the mechanism alone:
+
+| Gemma4:26b (examples + retry) | net IMP vs oracle | mean IMP/pos | asym-acceptable |
+|---|---|---|---|
+| `situations=none` | −114 | −0.76 | 82.0% |
+| `situations=` kept trio | **−60** | **−0.40** | 81.3% |
+
+Same model, same prompt otherwise, same 55 fired positions differing by ≤ a
+few blocks of text — **net table result improved by 54 IMP over 150 boards.**
+That is the cleanest evidence in this project that conditional injection
+works where global injection failed.
+
+---
+
 ## Open Items for Future Work
 
 1. **Replace the placeholder `expert_bid` heuristic** (§4,

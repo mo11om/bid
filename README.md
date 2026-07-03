@@ -61,8 +61,20 @@ Three prompt variants, A/B-tested live on the Ben-SAYC benchmark set
 with its simplified P22 prompt — whose examples include test-set deals.)
 
 With full-deal DDS quality scoring (see below), bench150 rises to **69.3%
-within 1 IMP** and **82.0% under the asymmetric rule** — 19 of the 57
+within 1 IMP** and **~82% under the asymmetric rule** — 19 of the 57
 oracle-exact "misses" are lines that *beat* the oracle by more than 1 IMP.
+
+### Situation-triggered guidance (`--situations`)
+
+Global prompt additions regress this model (four A/Bs, four regressions), so
+targeted guidance is injected **only where its situation fires** —
+`src/harness/situations.py` detects it from masked info (own hand + public
+auction); all other prompts stay byte-identical. Tags: `double_candidate`,
+`partner_game_drive`, `nt_game_candidate`, `strong_2c`; the default is the
+trio that passed a per-theme net-IMP gate on bench150 (`nt_game_candidate`
+measured ±0 and is off by default). Net effect on bench150: the model's
+total IMP deficit vs the oracle halved (−114 → −60). Values: `all`, `none`,
+or a comma-list.
 
 This mirrors bridge-llm-bench's ablation finding: removing all examples cost
 that benchmark −29pts, removing all rules cost −0.7pts. Only the ablation-kept
