@@ -48,6 +48,7 @@ def build_config(args: argparse.Namespace) -> Config:
         think=_THINK_CHOICES[args.think],
         prompt_style=args.prompt_style,
         retry_illegal=not args.no_retry_illegal,
+        dds_rule=args.dds_rule,
         threshold_mode=args.threshold_mode,
         threshold_n=args.threshold_n,
     )
@@ -211,6 +212,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Disable the one corrective re-ask after an FSM-rejected call "
             "(illegal calls then fall straight back to Pass, which can be "
             "accidentally 'correct')."
+        ),
+    )
+    p.add_argument(
+        "--dds-rule",
+        choices=["asymmetric", "symmetric"],
+        default=Config.dds_rule,
+        help=(
+            "DDS acceptability: 'asymmetric' (default) accepts within threshold "
+            "OR better for the model's side; 'symmetric' is the legacy "
+            "|delta| <= threshold rule."
         ),
     )
     p.add_argument("--threshold-mode", choices=["imp", "score"], default="imp")

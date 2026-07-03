@@ -250,10 +250,21 @@ def dds_details(
     )
 
     imp = imp_diff(llm_ns, expert_ns)
+
+    # Orient the delta to the acting seat's side: imp/scores are NS-perspective,
+    # so for an E/W seat a positive NS delta means the model's line is WORSE
+    # for its own side. model_gain > 0 = model's line better for the bidder.
+    seat_sign = 1 if record.seat in ("N", "S") else -1
     if config.threshold_mode == "score":
-        acceptable = abs(llm_ns - expert_ns) <= config.threshold_n
+        model_gain = seat_sign * (llm_ns - expert_ns)
     else:
-        acceptable = abs(imp) <= config.threshold_n
+        model_gain = seat_sign * imp
+
+    if config.dds_rule == "asymmetric":
+        # Within threshold OR strictly better for the model's side.
+        acceptable = model_gain >= -config.threshold_n
+    else:
+        acceptable = abs(model_gain) <= config.threshold_n
 
     return {
         "acceptable": acceptable,
@@ -266,6 +277,7 @@ def dds_details(
         "llm_score_ns": llm_ns,
         "expert_score_ns": expert_ns,
         "imp_delta": imp,
+        "model_gain_imp": seat_sign * imp,
     }
 
 

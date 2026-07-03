@@ -647,6 +647,93 @@ after its example stage.
 
 ---
 
+## 13. Follow-up: Deal Reconstruction, DDS Quality Metric, and Two Negative A/Bs
+
+### Error analysis that drove this (bench150, examples+retry, 57 misses)
+
+- Openings nearly solved: 84% exact (21/25); competitive seats 58% (72/125).
+- 74% of competitive misses were **under-competing** (27 passes + 12 timid
+  underbids of 53) — June's over-bidding got over-corrected into passivity.
+- Convention clusters: splinters (5 misses), strong-2C continuations (4), one
+  long competitive deal at 11/14.
+- Exact-match noise: auctions are seeded from **WBridge5** bids (~44%
+  SAYC-agreement per the benchmark's readme) and Ben answers them with
+  sometimes-implausible calls (a 5-HCP hand scored wrong for not bidding 6H).
+  Estimated 5–10 of 57 misses punished the sounder call.
+
+### Deal reconstruction (scripts_convert_bench.py)
+
+The bench CSVs list positions deal by deal, rotating through the seats — each
+deal's first four rows are the four hands. The converter now groups rows into
+deals (new deal = empty auction), rebuilds `all_hands`/`deal_pbn` via the
+existing `to_pbn_hand`/`_deal_to_full_pbn` helpers, and validates 52 unique
+cards per deal (all 14/14 pass; the 25-set's truncated last deal falls back to
+exact-match only with a warning). This unlocks rollout + double-dummy scoring
+on the benchmark sets for the first time. Dealer is assumed N, vulnerability
+None — not recorded in the CSVs.
+
+### Asymmetric DDS rule (`Config.dds_rule`, default `asymmetric`)
+
+Closes SESSION_LOG open item #3. The trap: `imp_delta` is **NS-perspective**,
+so "model better" must be re-oriented by the acting seat
+(`seat_sign = +1 for N/S, −1 for E/W`; `model_gain = seat_sign * imp`) or the
+rule inverts for E/W bidders. Acceptable ⇔ `model_gain >= -threshold_n`.
+`--dds-rule symmetric` preserves the legacy `|delta| <= n` for comparison;
+`model_gain_imp` is reported in `--detail` output. Covered by fake-endplay
+tests including the seat-orientation case (`tests/test_dds_path.py`).
+
+### Two negative A/Bs (prompt examples — both REJECTED)
+
+Per the error analysis, four examples were added and gate-tested (keep only if
+bench25 holds AND bench150 exact improves):
+
+| Variant | bench25 | bench150 | Verdict |
+|---|---|---|---|
+| committed block (baseline) | 72% | 62.0% | — |
+| + 2 anti-passivity + 2 convention | 56% | 59.3% | rejected |
+| + 2 convention only (splinter, 2C) | 68% | not run | rejected |
+
+The anti-passivity examples ("don't sell out with a fit") made the model
+over-compete on unrelated positions — a 2C overcall on a flat 12, pulling a
+penalty double. The convention examples regressed bench25 even though
+splinter/2C sequences never occur there: **any added example shifts behavior
+globally, not just on its target pattern.** Both reverted; a warning comment
+sits at the site in `prompt_builder.py`. This is the third confirmation of
+the P21/legality-line law, now measured per-group. The passivity bucket is
+not prompt-addressable for this model.
+
+### Results: exact vs quality on bench150 (Gemma4:26b, examples+retry)
+
+| Metric | bench150 |
+|---|---|
+| Exact match | 62.0% (93/150) |
+| DDS-acceptable, symmetric (within 1 IMP) | 69.3% (104/150) |
+| **DDS-acceptable, asymmetric (within 1 IMP or better)** | **82.0% (123/150)** |
+
+Split of the 57 exact-misses by rolled-out contract quality:
+
+| Bucket | Count |
+|---|---|
+| model's line **better by >1 IMP** | **19** |
+| within ±1 IMP (inconsequential) | 11 |
+| worse by >1 IMP (real errors) | 27 |
+
+**A third of the "misses" are the model outbidding the oracle.** Top cases:
+bench-73 Pass → 4S-by-them beats oracle's failing 5H (+6 IMP); bench-9's
+"conservative" Pass beats the oracle's 3NT (+5); bench-85/123's lower partial
+beats the oracle's failing game (+5 each). The under-competing bucket from the
+§13 error analysis was therefore substantially **oracle noise, not model
+weakness** — which also explains why the anti-passivity examples failed their
+A/B: they pushed the model toward a noisy target. Real errors (worse by
+>1 IMP) are 27/150 = 18% of positions.
+
+Exact-match against this WBridge5-seeded oracle understates the model by
+~20 points. The honest headline for Gemma4:26b on Ben-SAYC-150 is
+**82% quality-acceptable / 62% oracle-exact**, and metric work (this section)
+mattered more than another round of prompt work would have.
+
+---
+
 ## Open Items for Future Work
 
 1. **Replace the placeholder `expert_bid` heuristic** (§4,

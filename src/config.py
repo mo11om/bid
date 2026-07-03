@@ -70,6 +70,12 @@ class Config:
     threshold_n:
         A differing bid is "acceptable" when the delta is ``<= threshold_n``
         (IMPs in ``imp`` mode, score points in ``score`` mode).
+    dds_rule:
+        ``"asymmetric"`` (default) accepts a differing bid when the model's
+        line is within ``threshold_n`` of the expert's *or better for the
+        model's side* — a call that beats the oracle is not a failure.
+        ``"symmetric"`` is the legacy ``|delta| <= threshold_n`` rule, kept
+        for comparison runs.
     max_rollout_calls:
         Safety cap on LLM calls during a single auction rollout.
     cache_dir:
@@ -90,6 +96,7 @@ class Config:
 
     threshold_mode: str = "imp"  # "imp" | "score"
     threshold_n: int = 1
+    dds_rule: str = "asymmetric"  # "asymmetric" | "symmetric"
 
     max_rollout_calls: int = 40
 
@@ -106,6 +113,10 @@ class Config:
         if self.threshold_mode not in ("imp", "score"):
             raise ValueError(
                 f"threshold_mode must be 'imp' or 'score', got {self.threshold_mode!r}"
+            )
+        if self.dds_rule not in ("asymmetric", "symmetric"):
+            raise ValueError(
+                f"dds_rule must be 'asymmetric' or 'symmetric', got {self.dds_rule!r}"
             )
         if self.prompt_style not in ("base", "knowledge", "examples"):
             raise ValueError(

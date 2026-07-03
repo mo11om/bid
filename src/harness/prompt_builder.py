@@ -153,6 +153,16 @@ EXAMPLES: List[Tuple[str, str, str, str]] = [
      "Pass (partner's X of 2S is PENALTY — with KJ95 of spades, sit and defend)"),
 ]
 
+# NOTE: two example-block extensions were live A/B-tested on 2026-07-03 and
+# REJECTED — do not re-add without re-measuring:
+#   * anti-passivity "compete with a fit" examples (raise partner's overcall,
+#     outbid a preempt): bench25 72% -> 56% combined; the model started
+#     over-competing on unrelated positions (2C overcall on a flat 12,
+#     pulling a penalty double).
+#   * splinter + strong-2C convention examples: bench25 72% -> 68% even
+#     though those sequences never occur on bench25 — any added example
+#     shifts behavior globally, not just on its target pattern.
+
 EXAMPLES_BLOCK = "Examples (study carefully):\n" + "\n".join(
     f"{hand} ({info}) | {auction} → {call}"
     for hand, info, auction, call in EXAMPLES

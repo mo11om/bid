@@ -60,6 +60,10 @@ Three prompt variants, A/B-tested live on the Ben-SAYC benchmark set
 (bridge-llm-bench's Gemini Flash Lite scores 68.7% on the same 150 positions
 with its simplified P22 prompt — whose examples include test-set deals.)
 
+With full-deal DDS quality scoring (see below), bench150 rises to **69.3%
+within 1 IMP** and **82.0% under the asymmetric rule** — 19 of the 57
+oracle-exact "misses" are lines that *beat* the oracle by more than 1 IMP.
+
 This mirrors bridge-llm-bench's ablation finding: removing all examples cost
 that benchmark −29pts, removing all rules cost −0.7pts. Only the ablation-kept
 rule blocks (penalty doubles, 5-level, suit choice) are ported; the rules that
@@ -79,9 +83,22 @@ python scripts_convert_bench.py --set 25    # data/bench25_bensayc.jsonl
 python scripts_convert_bench.py --set 150   # data/bench150_bensayc.jsonl
 ```
 
-These sets carry no full deals, so run them with `--no-dds` (exact-match
+The CSVs list positions deal by deal, rotating through the four seats, so each
+deal's first four rows contain all four hands — the converter reassembles them
+into `deal_pbn`/`all_hands` (validated to 52 unique cards), which enables the
+full rollout + double-dummy quality scoring on these sets (dealer assumed N,
+vulnerability None; the truncated last deal of the 25-set stays exact-match
 only). `scripts_vote_eval.py` adds k-sample majority voting on top of the same
 harness (`--k 9 --temp 0.5 --prompt-style examples`).
+
+### DDS acceptability rule (`--dds-rule`)
+
+`asymmetric` (default): a differing call is acceptable when its rolled-out
+contract is within `threshold_n` IMPs of the expert's *or better for the
+model's side* — beating the oracle is not a failure. `symmetric` is the legacy
+`|delta| <= threshold` rule, kept for comparison. Internally the NS-perspective
+IMP delta is re-oriented by the acting seat (`model_gain_imp` in `--detail`
+output): without that, "better" would be inverted for E/W seats.
 
 ### Backend (`--backend`)
 
