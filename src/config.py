@@ -36,6 +36,21 @@ class Config:
         Run ``ollama list`` to see exact installed tags.
     temperature:
         Sampling temperature for bid generation.
+    prompt_style:
+        Which prompt variant ``ContextBuilder`` renders:
+
+        * ``"base"`` — lean harness prompt (hand features + auction roles only).
+        * ``"knowledge"`` — base + the SAYC reference guide.
+        * ``"examples"`` (default) — knowledge + targeted rule blocks + generic
+          few-shot examples. The bridge-llm-bench ablation showed examples are
+          what actually moves accuracy (−29pts when removed vs −0.7pts for
+          rules), so this is the recommended setting.
+    retry_illegal:
+        When the FSM rejects the model's call as illegal, re-ask once with the
+        rejection appended (naming the standing contract) before falling back
+        to ``Pass``. Only runs in the failure state, so it cannot perturb
+        legal-call behavior. Note this removes *accidentally correct* Passes
+        too: with it on, every scored call is one the model actually chose.
     think:
         Controls "thinking"/reasoning mode on servers that support it (e.g.
         Ollama with qwen3, deepseek-r1, gpt-oss). Tri-state:
@@ -66,8 +81,10 @@ class Config:
     backend: str = "ollama"  # "ollama" | "vllm"
     base_url: str = OLLAMA_NATIVE_BASE_URL
     api_key: str = "local-no-key"
-    model: str = "gemma4:26b"
+    model: str = "Gemma4:26b"  # exact installed Ollama tag (case-sensitive)
     temperature: float = 0.0
+    prompt_style: str = "examples"  # "base" | "knowledge" | "examples"
+    retry_illegal: bool = True  # one corrective re-ask when the FSM rejects a call
     think: Optional[bool] = None  # None = server default; True/False = force
     request_timeout: float = 60.0
 
@@ -89,6 +106,11 @@ class Config:
         if self.threshold_mode not in ("imp", "score"):
             raise ValueError(
                 f"threshold_mode must be 'imp' or 'score', got {self.threshold_mode!r}"
+            )
+        if self.prompt_style not in ("base", "knowledge", "examples"):
+            raise ValueError(
+                f"prompt_style must be 'base', 'knowledge' or 'examples', "
+                f"got {self.prompt_style!r}"
             )
 
 

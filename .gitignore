@@ -8,3 +8,4 @@ data/*.log
 data/*.png
 *.tmp
 .DS_Store
+.claude/

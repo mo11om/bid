@@ -41,7 +41,47 @@ python run_eval.py --mode scenario_test --count 10 \
 
 Useful flags: `--threshold-mode {imp,score}`, `--threshold-n N`, `--no-dds`
 (exact-match only, skips the solver), `--results-json out.json`,
-`--think {auto,on,off}` (see below), `--backend {ollama,vllm}` (see below).
+`--think {auto,on,off}` (see below), `--backend {ollama,vllm}` (see below),
+`--prompt-style {base,knowledge,examples}` (see below),
+`--no-retry-illegal` (disable the one corrective re-ask after an FSM-rejected
+call; illegal calls then fall straight back to Pass).
+
+### Prompt style (`--prompt-style`)
+
+Three prompt variants, A/B-tested live on the Ben-SAYC benchmark set
+(Gemma4:26b, `--think off`, temp 0, retry-on-illegal enabled):
+
+| Style | Contents | bench25 | bench150 |
+|---|---|---|---|
+| `base` | hand features + auction roles | 60% | — |
+| `knowledge` | + SAYC reference guide | 60% | — |
+| `examples` (default) | + targeted rules + generic few-shot examples | **72%** | **62%** |
+
+(bridge-llm-bench's Gemini Flash Lite scores 68.7% on the same 150 positions
+with its simplified P22 prompt — whose examples include test-set deals.)
+
+This mirrors bridge-llm-bench's ablation finding: removing all examples cost
+that benchmark −29pts, removing all rules cost −0.7pts. Only the ablation-kept
+rule blocks (penalty doubles, 5-level, suit choice) are ported; the rules that
+measurably hurt (competitive-bidding, takeout-X-response, "when not to
+compete") are deliberately absent. All few-shot hands are freshly composed —
+`tests/test_prompt_examples.py` enforces that none appears in the benchmark
+data (the benchmark's own example block leaked test-set deals, inflating its
+headline number).
+
+### Ben-SAYC benchmark datasets
+
+`scripts_convert_bench.py` converts the sibling `bridge-llm-bench` data into
+this harness's JSONL schema, using the Ben SAYC engine as oracle:
+
+```bash
+python scripts_convert_bench.py --set 25    # data/bench25_bensayc.jsonl
+python scripts_convert_bench.py --set 150   # data/bench150_bensayc.jsonl
+```
+
+These sets carry no full deals, so run them with `--no-dds` (exact-match
+only). `scripts_vote_eval.py` adds k-sample majority voting on top of the same
+harness (`--k 9 --temp 0.5 --prompt-style examples`).
 
 ### Backend (`--backend`)
 
@@ -134,8 +174,10 @@ run_eval.py                 # CLI orchestrator
   distribution (`compute_shape`), hand type (`classify_shape`: Balanced /
   Two-suited / Unbalanced), and LTC (`compute_ltc`) — all derived only from the
   active seat's own hand. The auction is annotated with table roles
-  (`annotate_auction`: partner vs. opponent, opening vs. responding), derived
-  purely from auction order so masking still holds.
+  (`annotate_auction`: RHO/Partner/LHO/**You** — the cycle has period 4 since
+  the model's own earlier calls are part of the history; a period-3 cycle
+  mislabeled who opened in every auction of 4+ calls), derived purely from
+  auction order so masking still holds.
 - **A bid becomes a contract via self-play rollout.** `LocalLLMClient` bids the
   remaining seats until the auction closes, then `endplay` double-dummy scores
   the settled contract. Rollout calls are cached to keep runs cheap.
@@ -151,7 +193,7 @@ run_eval.py                 # CLI orchestrator
 ## Tests
 
 ```bash
-pytest          # 76 tests
+pytest          # 101 tests
 ```
 
 Most tests run with no network and no solver. The `endplay` and `redeal`
