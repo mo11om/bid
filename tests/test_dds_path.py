@@ -118,3 +118,48 @@ def test_dds_exact_match_short_circuits(cleanup_endplay):
             raise AssertionError("should not roll out on exact match")
 
     assert evaluate_with_dds(_record(), "3NT", "3NT", Boom(), Config()) is True
+
+
+# --------------------------------------------------------------------------- #
+# Asymmetric acceptability (dds_rule)
+# --------------------------------------------------------------------------- #
+def test_asymmetric_accepts_model_strictly_better_ns(cleanup_endplay):
+    # N seat: 4S+3 = 510 vs 3NT = 400 -> ~3 IMPs in the model's favour.
+    _install_fake_endplay({"S": 13, "NT": 9})
+    from src.evaluation.metrics import evaluate_with_dds
+
+    rec = _record()  # seat N
+    assert evaluate_with_dds(
+        rec, "4S", "3NT", StubRolloutClient(),
+        Config(dds_rule="asymmetric", threshold_n=1),
+    ) is True
+    assert evaluate_with_dds(
+        rec, "4S", "3NT", StubRolloutClient(),
+        Config(dds_rule="symmetric", threshold_n=1),
+    ) is False
+
+
+def test_asymmetric_orients_by_seat_for_ew(cleanup_endplay):
+    # Both rollouts still declared by N (NS side). The model's line scores
+    # LESS for NS (4S down 3 = -150 vs 3NT = 400), i.e. BETTER for an E/W
+    # bidder: asymmetric must accept for seat E, reject for seat N.
+    _install_fake_endplay({"S": 7, "NT": 9})
+    from src.evaluation.metrics import dds_details
+
+    rec_e = _record()
+    rec_e.seat = "E"
+    d = dds_details(rec_e, "4S", "3NT", StubRolloutClient(),
+                    Config(dds_rule="asymmetric", threshold_n=1))
+    assert d["model_gain_imp"] > 0
+    assert d["acceptable"] is True
+
+    rec_n = _record()  # seat N: same delta is a loss for the bidder
+    d = dds_details(rec_n, "4S", "3NT", StubRolloutClient(),
+                    Config(dds_rule="asymmetric", threshold_n=1))
+    assert d["model_gain_imp"] < 0
+    assert d["acceptable"] is False
+
+
+def test_dds_rule_validated():
+    with pytest.raises(ValueError):
+        Config(dds_rule="lenient")
