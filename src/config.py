@@ -45,6 +45,13 @@ class Config:
           few-shot examples. The bridge-llm-bench ablation showed examples are
           what actually moves accuracy (−29pts when removed vs −0.7pts for
           rules), so this is the recommended setting.
+    situations:
+        Situation-triggered guidance blocks (``"examples"`` style only).
+        ``"all"``, ``"none"``, or a comma-list of tags from
+        :data:`src.harness.situations.ALL_TAGS`. A block is injected only for
+        positions where its situation fires — all other prompts stay
+        byte-identical, confining the blast radius that made *global* prompt
+        additions regress (SESSION_LOG §12–13).
     retry_illegal:
         When the FSM rejects the model's call as illegal, re-ask once with the
         rejection appended (naming the standing contract) before falling back
@@ -90,6 +97,9 @@ class Config:
     model: str = "Gemma4:26b"  # exact installed Ollama tag (case-sensitive)
     temperature: float = 0.0
     prompt_style: str = "examples"  # "base" | "knowledge" | "examples"
+    # Default = the tags that PASSED their per-theme net-IMP gate on bench150
+    # (SESSION_LOG §14). nt_game_candidate measured ±0 and was dropped.
+    situations: str = "double_candidate,partner_game_drive,strong_2c"
     retry_illegal: bool = True  # one corrective re-ask when the FSM rejects a call
     think: Optional[bool] = None  # None = server default; True/False = force
     request_timeout: float = 60.0
@@ -123,6 +133,10 @@ class Config:
                 f"prompt_style must be 'base', 'knowledge' or 'examples', "
                 f"got {self.prompt_style!r}"
             )
+        # Lazy import keeps config free of harness dependencies at module load.
+        from src.harness.situations import parse_situations_setting
+
+        parse_situations_setting(self.situations)  # raises on unknown tags
 
 
 # A module-level default instance for convenience.

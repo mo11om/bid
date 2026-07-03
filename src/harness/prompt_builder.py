@@ -19,6 +19,11 @@ from src.bridge import (
     parse_hand,
 )
 from src.harness.hand_facts import HandFacts, SUIT_NAMES, compute_hand_facts
+from src.harness.situations import (
+    SITUATION_BLOCKS,
+    detect_situations,
+    parse_situations_setting,
+)
 from src.schema.dataset import MockDealRecord
 
 _SUIT_SYMBOL = {"S": "♠", "H": "♥", "D": "♦", "C": "♣"}
@@ -229,12 +234,13 @@ class ContextBuilder:
     the kept rule blocks and the few-shot examples.
     """
 
-    def __init__(self, prompt_style: str = "examples") -> None:
+    def __init__(self, prompt_style: str = "examples", situations: str = "all") -> None:
         if prompt_style not in PROMPT_STYLES:
             raise ValueError(
                 f"prompt_style must be one of {PROMPT_STYLES}, got {prompt_style!r}"
             )
         self.prompt_style = prompt_style
+        self.situation_tags = parse_situations_setting(situations)
 
     def build_prompt(self, record: MockDealRecord) -> str:
         view = record.masked_view()
@@ -272,6 +278,19 @@ class ContextBuilder:
         if self.prompt_style == "examples":
             blocks.append(KEPT_RULES)
             blocks.append(EXAMPLES_BLOCK)
+            # Situation-triggered guidance: injected ONLY when a tag fires for
+            # this position, so all other prompts stay byte-identical (the
+            # confined-blast-radius property; see src/harness/situations.py).
+            if self.situation_tags:
+                fired = [
+                    t for t in detect_situations(hand, hcp, history)
+                    if t in self.situation_tags
+                ]
+                if fired:
+                    blocks.append(
+                        "Situation notes (this auction):\n\n"
+                        + "\n\n".join(SITUATION_BLOCKS[t] for t in fired)
+                    )
         knowledge_block = "".join(f"{b}\n\n" for b in blocks)
         return (
             f"{SYSTEM_INSTRUCTION}\n\n"
