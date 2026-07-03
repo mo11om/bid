@@ -220,6 +220,55 @@ def test_illegal_call_tagged_distinctly(tmp_path):
     client = _ollama_client("", think=None, cache_dir=str(tmp_path))
     with _fake_ollama_post(json.dumps({"thinking": "x", "bid": "1C"})):
         # 1NT already on the table; 1C does not outrank it -> illegal.
+        # The mock returns 1C on the corrective retry too -> Pass fallback.
+        bid = client.get_bid("prompt", history=["1NT"])
+    assert bid.bid == "Pass"
+    assert bid.thinking.startswith("illegal call")
+
+
+def _fake_ollama_post_seq(*contents: str):
+    """Mock requests.post yielding a different canned response per call."""
+    resps = []
+    for content in contents:
+        r = mock.MagicMock()
+        r.raise_for_status = mock.MagicMock()
+        r.json.return_value = {"message": {"role": "assistant", "content": content}}
+        resps.append(r)
+    return mock.patch("src.harness.llm_client._requests.post", side_effect=resps)
+
+
+def test_illegal_call_recovered_by_retry(tmp_path):
+    client = _ollama_client("", think=None, cache_dir=str(tmp_path))
+    with _fake_ollama_post_seq(
+        json.dumps({"thinking": "insufficient", "bid": "1C"}),
+        json.dumps({"thinking": "ok now", "bid": "2NT"}),
+    ) as post:
+        bid = client.get_bid("prompt", history=["1NT"])
+    assert bid.bid == "2NT"
+    assert bid.thinking.startswith("(retry after illegal '1C')")
+    # The corrective prompt names the bidding floor.
+    retry_prompt = post.call_args_list[1].kwargs["json"]["messages"][-1]["content"]
+    assert "ILLEGAL" in retry_prompt and "1NT" in retry_prompt
+
+
+def test_retry_disabled_falls_back_immediately(tmp_path):
+    config = Config(backend="ollama", cache_dir=str(tmp_path), retry_illegal=False)
+    client = LocalLLMClient(config)
+    client.cache.get = lambda *a, **k: None
+    client.cache.set = lambda *a, **k: None
+    with _fake_ollama_post(json.dumps({"thinking": "x", "bid": "1C"})) as post:
+        bid = client.get_bid("prompt", history=["1NT"])
+    assert bid.bid == "Pass"
+    assert bid.thinking.startswith("illegal call")
+    assert post.call_count == 1  # no second (corrective) request
+
+
+def test_retry_failure_still_falls_back_to_pass(tmp_path):
+    client = _ollama_client("", think=None, cache_dir=str(tmp_path))
+    with _fake_ollama_post_seq(
+        json.dumps({"thinking": "insufficient", "bid": "1C"}),
+        "not json at all",  # retry unparsable -> fall back exactly as before
+    ):
         bid = client.get_bid("prompt", history=["1NT"])
     assert bid.bid == "Pass"
     assert bid.thinking.startswith("illegal call")

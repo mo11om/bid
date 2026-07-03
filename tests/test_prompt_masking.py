@@ -1,9 +1,24 @@
 """Prompt tests: masking, feature injection, and auction-role annotation."""
 
-from src.harness.prompt_builder import ContextBuilder, annotate_auction
+from src.harness.prompt_builder import (
+    EXAMPLES_BLOCK,
+    KEPT_RULES,
+    SAYC_KNOWLEDGE,
+    ContextBuilder,
+    annotate_auction,
+)
 from src.schema.dataset import MockDealRecord
 
 builder = ContextBuilder()
+
+
+def _dynamic(prompt: str) -> str:
+    """Strip the static knowledge/rules/examples text, leaving only the
+    record-derived content — the part the masking guarantee is about. The
+    static few-shot examples legitimately contain card strings."""
+    for block in (SAYC_KNOWLEDGE, KEPT_RULES, EXAMPLES_BLOCK):
+        prompt = prompt.replace(block, "")
+    return prompt
 
 
 def _record(current_bidding=None) -> MockDealRecord:
@@ -37,10 +52,12 @@ def test_prompt_contains_active_hand_only():
     # Active hand is rendered space-separated per suit, e.g. "A K 7".
     assert "A K 7" in prompt
     assert "13 HCP" in prompt
-    # No other seat's distinctive holdings leak in (checked both contiguous and
-    # spaced, since only the active hand is ever rendered).
+    # No other seat's distinctive holdings leak into the record-derived part
+    # of the prompt (checked both contiguous and spaced, since only the active
+    # hand is ever rendered).
+    dynamic = _dynamic(prompt)
     for leak in ("AQJ9", "A Q J 9", "8753", "8 7 5 3", "6543", "6 5 4 3"):
-        assert leak not in prompt
+        assert leak not in dynamic
 
 
 def test_build_prompt_parts_matches():
@@ -86,9 +103,9 @@ def test_prompt_injects_reference_facts_block():
 def test_reference_block_never_leaks_other_hands():
     # The facts block is single-hand only; no other seat's holdings appear.
     rec = _record()
-    prompt = builder.build_prompt(rec)
+    dynamic = _dynamic(builder.build_prompt(rec))
     for leak in ("AQJ9", "A Q J 9", "8753", "8 7 5 3", "6543", "6 5 4 3"):
-        assert leak not in prompt
+        assert leak not in dynamic
 
 
 # --------------------------------------------------------------------------- #

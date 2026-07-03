@@ -18,6 +18,7 @@ import requests as _requests
 from src.bridge import (
     auction_is_closed,
     count_hcp,
+    is_contract_bid,
     normalize_call,
     seat_to_act,
 )
@@ -41,7 +42,7 @@ class LocalLLMClient:
         cache: Optional[LLMCache] = None,
     ) -> None:
         self.config = config
-        self.builder = builder or ContextBuilder()
+        self.builder = builder or ContextBuilder(prompt_style=config.prompt_style)
         self.fsm = fsm or BiddingFSM()
         self.cache = cache or LLMCache(config.cache_dir, config.model)
         self._client = None  # lazily constructed openai client
@@ -181,8 +182,15 @@ class LocalLLMClient:
     def get_bid(self, prompt: str, history: Optional[List[str]] = None) -> BridgeBid:
         """Return a validated bid. Falls back to ``Pass`` on any failure.
 
-        If ``history`` is given, the parsed bid is also checked for legality via
-        :class:`BiddingFSM`; an illegal call falls back to ``Pass``.
+        If ``history`` is given, the parsed bid is also checked for legality
+        via :class:`BiddingFSM`. An illegal call gets ONE corrective retry —
+        the prompt is re-sent with the rejection appended (which call was
+        illegal and why the level is insufficient), and only a second illegal
+        answer falls back to ``Pass``. Retry-on-illegal is strictly safer than
+        stating legality rules up-front: a live A/B showed an unconditional
+        "legality" prompt line regressed bench25 76% → 60% (the model
+        over-anchored on it), whereas the retry path only ever runs on
+        positions that were already lost.
 
         The three failure modes are distinguished in ``thinking`` (prefixes
         ``"transport error:"``, ``"parse error:"``, ``"illegal call"``) so a
@@ -202,7 +210,45 @@ class LocalLLMClient:
             return BridgeBid(thinking=f"parse error: {e}", bid="Pass")
 
         if history is not None and not self.fsm.is_valid_bid(history, bid.bid):
+            if self.config.retry_illegal:
+                retried = self._retry_illegal(prompt, history, bid.bid)
+                if retried is not None:
+                    return retried
             return BridgeBid(thinking=f"illegal call {bid.bid!r} -> Pass", bid="Pass")
+        return bid
+
+    def _retry_illegal(
+        self, prompt: str, history: List[str], illegal: str
+    ) -> Optional[BridgeBid]:
+        """One corrective re-ask after an FSM rejection; ``None`` if it fails.
+
+        The feedback names the standing contract so the model knows the
+        bidding floor it violated. Any transport/parse/legality failure on the
+        retry returns ``None`` and the caller falls back to ``Pass`` exactly
+        as before — this path can only recover positions, never lose them.
+        """
+        last_contract = next(
+            (c for c in reversed(history) if is_contract_bid(c)), None
+        )
+        floor = (
+            f"the auction stands at {last_contract}, so a bid must be "
+            f"HIGHER than {last_contract}"
+            if last_contract is not None
+            else "that call is not available in this auction"
+        )
+        feedback = (
+            f"{prompt}\n\n"
+            f"IMPORTANT: your previous answer {illegal!r} is an ILLEGAL call "
+            f"here — {floor}. Choose a legal call instead (a sufficient bid, "
+            f"X/XX only if legal, or Pass)."
+        )
+        try:
+            bid = self._parse_bid(self._raw_call(feedback))
+        except Exception:
+            return None
+        if not self.fsm.is_valid_bid(history, bid.bid):
+            return None
+        bid.thinking = f"(retry after illegal {illegal!r}) {bid.thinking}"
         return bid
 
     def _parse_bid(self, raw: str) -> BridgeBid:

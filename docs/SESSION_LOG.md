@@ -528,6 +528,125 @@ responding-to-partner / opponent-opened) in `test_prompt_masking.py`; and
 
 ---
 
+## 12. Follow-up: Closing the Accuracy Gap vs bridge-llm-bench
+
+### Context
+
+On 25 Ben-SAYC benchmark positions (converted from the sibling
+`bridge-llm-bench` project, which shares the oracle), gemma4:26b sat at 52%
+baseline / 56% with a SAYC-knowledge block, while the benchmark's Gemini Flash
+Lite journey reached 70.7% (N=150) and a headline 80% (N=50 + voting). The
+benchmark's ablation data dictated the porting strategy: **removing all
+examples cost it −29.3pts; removing all rules cost −0.7pts.** Three rule
+blocks (competitive bidding, takeout-X response, "when not to compete")
+measurably *hurt*.
+
+Two integrity findings about the benchmark itself:
+
+- **Its example block leaks test-set deals.** P22's examples include
+  `S:Q52 H:6543 D:K732 C:AJ | P P 1S 1NT → X` — literally the bench-0/bench-4
+  deal. Its own log flags P21 as "INVALID — hardcoded test hands", but P22
+  kept several. Part of its headline number is leakage.
+- Decision here: **generic examples only**, with
+  `tests/test_prompt_examples.py::test_no_example_hand_appears_in_benchmark_data`
+  as a permanent fence (it normalizes hand formats and checks every example
+  hand against both benchmark CSV/JSONL sets).
+
+### The bug that mattered: auction roles had period 3, not 4
+
+`annotate_auction` back-counted roles as `RHO, Partner, LHO` repeating — but a
+bridge auction rotates **four** seats; the model's own earlier calls are in
+the history. Every call 4+ positions back was mislabeled, including **who
+opened** — the one fact the summary line asserts. On bench25, 12 of 25
+positions have 4+ call auctions, and the mislabeling precisely explains the
+observed misses: bench-8 (partner opened 1S → labeled "LHO opened" → model
+passed instead of raising to 3S), bench-9 (partner's 1NT overcall labeled
+LHO → passed instead of 3NT), bench-18 (the model's OWN 1H opening labeled
+"RHO opened 1H"), bench-19 (RHO's opening labeled "partner opened").
+
+Fix: `_ROLE_CYCLE = ("RHO", "Partner", "LHO", "You")`, modulo 4, plus a
+dedicated summary branch ("YOU opened 1H earlier — you are the OPENER choosing
+a rebid"). This alone moved bench25 from 52% → 60% with the lean base prompt.
+
+### Prompt styles (Config.prompt_style / --prompt-style)
+
+The env-flag knowledge toggle became a first-class tri-state knob:
+
+- `base` — hand features + auction roles (the previous default).
+- `knowledge` — + SAYC reference guide (ported verbatim from the benchmark).
+- `examples` (new default) — + the two ablation-kept rule blocks (penalty
+  doubles, 5-level, opening suit choice) + 17 generic few-shot examples
+  covering the observed error buckets: light-opening restraint (Rule of 20),
+  weak-2 suit quality, competitive doubles, transfers over partner's 1NT
+  overcall, competitive jump raises, 3NT-with-stopper over overcalls, jumps
+  after partner's takeout X, penalty-pass discipline. Each example hand is
+  validated by tests for 13 cards and correct HCP annotation.
+
+### Results (Gemma4:26b, --think off, temp 0, exact match, no DDS)
+
+| Config | bench25 | bench150 |
+|---|---|---|
+| old baseline (period-3 roles) | 52% | — |
+| old + SAYC knowledge (env flag) | 56% | — |
+| old + vote k=9 t=0.5 | 48% | — |
+| `base` (role fix only) | 60% | — |
+| `knowledge` | 60% | — |
+| `examples`, no retry | 76%¹ | 63.3%¹ |
+| **`examples` + retry-on-illegal (default)** | **72%** | **62.0%** |
+| `examples` + retry + vote k=9 t=0.5 | 72% | — |
+| bridge-llm-bench Flash Lite reference | — | P22 68.7% / P20 70.7% |
+
+Majority voting adds exactly nothing on top of the examples prompt (72% →
+72%) — replicating the benchmark's own finding that voting only rescued its
+*weak* prompt (P18+vote 80% vs P20+vote +0). With a strong prompt the model's
+errors are systematic, not noisy, so sampling cannot vote them away.
+
+¹ Inflated by *accidentally correct* Passes: the FSM converts an illegal
+(insufficient) bid straight to Pass, and on several positions Pass happened to
+be the oracle call even though the model had chosen to overbid (3 such
+positions on bench25, 3 net on bench150). The retry numbers are the honest
+ones — every scored call is one the model actually chose and was legal.
+
+### Retry-on-illegal (`Config.retry_illegal`, `--no-retry-illegal`)
+
+10.7% of bench150 positions had the model choosing an *insufficient* bid
+(e.g. 2D when the auction stood at 2S) that the FSM silently turned into
+Pass. Rather than stating legality rules up-front (see failed refinement
+below), `get_bid` now re-asks **once** with the rejection appended ("your
+previous answer '2D' is an ILLEGAL call here — the auction stands at 2S ...").
+A second failure falls back to Pass exactly as before. Because the corrective
+turn only runs on positions that were already lost, it cannot perturb
+legal-call behavior. Result: illegal-call fallbacks 14 → 0 on bench150,
+4 → 0 on bench25.
+
+### The refinement that failed (kept for the record)
+
+A "Legality: the auction stands at 2S — bid higher or Pass" line was added to
+fix 4 illegal-call fallbacks (insufficient bids silently FSM'd to Pass). It
+**regressed bench25 76% → 60%**: the model over-anchored, re-opening light
+hands ("any bid from 1C up is legal" read as an invitation) and passing
+competitive positions. Reverted; a warning comment sits at the site in
+`prompt_builder.py`. Same lesson as the benchmark's P21: with a small model,
+each added instruction is a behavioral lever, not documentation — never add
+prompt text without re-measuring.
+
+### Remaining bench25 misses (retry-era, 7/25)
+
+- bench-5 (2H vs 2D): bids the 5-card suit naturally instead of transferring
+  over partner's 1NT overcall.
+- bench-6 (3C vs Pass): real overbid, previously hidden behind an FSM Pass.
+- bench-8/9 (Pass vs 3S/3NT): reasoning identifies the layout correctly but
+  stays conservative below game.
+- bench-18/19 (2NT vs 3C, 2D vs 3D): right read of the auction, wrong rebid
+  choice / no jump.
+- bench-23 (Pass vs 3D): declines to compete at the 3-level.
+
+The failure profile is now *judgment* (conservatism, transfer discipline),
+not mechanics (roles, parsing, legality) — the same profile the benchmark hit
+after its example stage.
+
+---
+
 ## Open Items for Future Work
 
 1. **Replace the placeholder `expert_bid` heuristic** (§4,

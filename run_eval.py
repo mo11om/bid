@@ -46,6 +46,8 @@ def build_config(args: argparse.Namespace) -> Config:
         model=args.model,
         temperature=args.temperature,
         think=_THINK_CHOICES[args.think],
+        prompt_style=args.prompt_style,
+        retry_illegal=not args.no_retry_illegal,
         threshold_mode=args.threshold_mode,
         threshold_n=args.threshold_n,
     )
@@ -177,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("--base-url", default=None, help="Override endpoint URL.")
-    p.add_argument("--model", default=Config.model, help="Model name.")
+    p.add_argument("--model", default=Config.model, help="Model name (run 'ollama list' for exact tags).")
     p.add_argument("--temperature", type=float, default=Config.temperature)
     p.add_argument(
         "--think",
@@ -192,6 +194,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Threshold
+    p.add_argument(
+        "--prompt-style",
+        choices=["base", "knowledge", "examples"],
+        default=Config.prompt_style,
+        help=(
+            "Prompt variant: 'base' = hand features + auction only; "
+            "'knowledge' = + SAYC reference guide; 'examples' (default) = "
+            "+ targeted rules and few-shot examples (ablation-proven recipe)."
+        ),
+    )
+    p.add_argument(
+        "--no-retry-illegal",
+        action="store_true",
+        help=(
+            "Disable the one corrective re-ask after an FSM-rejected call "
+            "(illegal calls then fall straight back to Pass, which can be "
+            "accidentally 'correct')."
+        ),
+    )
     p.add_argument("--threshold-mode", choices=["imp", "score"], default="imp")
     p.add_argument("--threshold-n", type=int, default=1)
     p.add_argument("--no-dds", action="store_true", help="Skip DDS (exact match only).")
