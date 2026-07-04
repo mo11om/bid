@@ -813,6 +813,62 @@ works where global injection failed.
 
 ---
 
+## 15. Comparison: qwen3.6:35b-a3b vs Gemma4:26b
+
+### Setup
+
+`qwen3.6:35b-a3b` is a Mixture-of-Experts reasoning model (active params ~3.6B,
+total ~35B). Run with `--backend ollama --think off --prompt-style examples
+--situations double_candidate,partner_game_drive,strong_2c --retry-illegal`
+(same config as the kept-trio Gemma4:26b baseline) on both bench sets.
+
+### Results
+
+| Model | bench25 exact | bench150 exact | bench150 DDS-asym | fallback (150) |
+|---|---|---|---|---|
+| Gemma4:26b + situations | **72.0%** | 62.7% | 81.3% | — |
+| qwen3.6:35b-a3b + situations | 60.0% | **63.3%** | **82.7%** | 14.7% (22 parse errors) |
+
+### Reading the numbers
+
+**bench25:** Gemma4:26b leads by 12 pts (72% vs 60%). Qwen has 2 parse errors
+(8% fallback) on this 25-position set — both fell back to Pass, inflating
+misses slightly.
+
+**bench150 exact:** Qwen edges Gemma by 0.6 pts (63.3% vs 62.7%) — effectively
+a tie given the 14.7% fallback rate (22 positions where qwen produced
+unparseable output and fell back to Pass). If those 22 had been correctly
+parsed, qwen's exact match could be materially different in either direction.
+
+**bench150 DDS-asym:** Qwen 82.7% vs Gemma 81.3% — a 1.4 pt edge. Again,
+partly confounded by the 14.7% fallback; parse-fail Passes can land inside
+the ±1 IMP window by accident (Pass when Pass is right), artificially inflating
+this rate.
+
+**Parse errors** are the dominant story: qwen's structured-output compliance
+is worse than Gemma's on this harness. On bench150 it fails to return valid
+JSON 22 times (14.7%), vs near-zero for Gemma. This is a known qwen3 quirk
+with `--think off` and native Ollama — the model occasionally leaks
+`<think>` fragments into the content field even when thinking is suppressed.
+`LocalLLMClient._parse_bid` strips inline `<think>…</think>` blocks, but
+malformed partial leaks may still break the JSON extractor.
+
+### Conclusion
+
+At the position level the two models are roughly equivalent on bench150
+(within noise after accounting for qwen's fallback inflation). Gemma4:26b
+is clearly better on bench25. The qwen MoE architecture buys no measurable
+advantage on this bidding task while adding a meaningful parse-reliability
+problem. **Gemma4:26b remains the recommended local model for this harness.**
+
+The comparison also validates the harness's `fallback_reason` reporting: the
+14.7% fallback rate is immediately visible in the summary, letting us
+distinguish "model bid poorly" from "model didn't bid at all" — exactly the
+failure mode the `verify_connection` + `fallback_pass_rate` safeguards were
+built to catch.
+
+---
+
 ## Open Items for Future Work
 
 1. **Replace the placeholder `expert_bid` heuristic** (§4,
